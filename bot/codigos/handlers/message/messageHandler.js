@@ -1,0 +1,543 @@
+// messageHandler.js
+import AutoTagHandler from '../../moderation/autoTagHandler.js';
+import ReplyTagHandler from '../../moderation/replyTagHandler.js';
+import olhinhoHandler from './olhinhoHandler.js';
+import confissoesHandler from './confissoesHandler.js';
+import alertaHandler from '../../moderation/alertaHandler.js';
+import { handleSignos } from '../../moderation/signosHandler.js';
+import { handleGroupCommands } from '../../utils/redefinirFecharGrupo.js';
+import { handleOwnerMenu } from '../../features/menuOwner.js';
+import pool from '../../../../db.js';
+import { moderacaoAvancada } from '../../moderation/removerCaracteres.js';
+import { handleAntiLink } from '../../moderation/antilink.js';
+import { processCommandPriorities } from '../../handlers/command/commandPriorities.js';
+import { handleBasicCommands, handleGroupUpdate } from './messageHelpers.js';
+import { handleStickerCommand } from '../../features/stickerHandler.js';
+import { processarComandoRegras } from '../../features/boasVindas.js';
+import { configurarDespedida } from '../../features/despedidaMembro.js';
+import { handlePoemas, handleAtualizarPoemas } from '../command/poema.js';
+import { handleReloadConfig, handleDedicatoriaCommands } from '../musica/dedicatoriaHandler.js';
+import { handleBanMessage } from '../../moderation/banHandler.js';
+import { handleNotCommand } from '../command/notCommandHandler.js';
+import { handleChamarCommand } from '../command/chamarHandler.js';
+import { golpeHandler } from '../command/golpeHandler.js';
+import { responderNaturalmente, ativarIA, pausarIA, isIAAtiva } from '../../utils/mistralClient.js';
+import { handleSalvaContato, handleListarContatos } from '../command/contatoHandler.js';
+import { perfilHandler, atualizarPerfilHandler } from '../command/perfilHandler.js';
+import {
+  handleBomDia,
+  handleBoaTarde,
+  handleBoaNoite,
+  handleAtualizarSaudacoes,
+} from '../command/saudacoesHandler.js';
+
+// ✅ IMPORTS — rainha / ranking
+import { ativosHandler, inativosHandler } from '../command/ativosHandler.js';
+import { rankdamasHandler } from '../command/rankdamasHandler.js';
+import { rainhaHandler } from '../command/rainhaHandler.js';
+import { trackMensagem } from '../../features/mensagensTracker.js';
+
+const autoTag = new AutoTagHandler();
+const replyTag = new ReplyTagHandler();
+
+const OWNER_NUMBERS = ['555195201826', '5521972337640'];
+const DEBUG_MODE = process.env.DEBUG === 'true';
+
+// ============================================
+// 🏠 IDs DOS GRUPOS
+// ============================================
+const GRUPO_PRINCIPAL = '120363414543392978@g.us';
+const GRUPO_ADMINS    = '120363421857537823@g.us';
+const GRUPO_CONTROLE  = '120363407299974710@g.us'; // grupo onde ficam os comandos #ativar / #pausar
+
+const MEDIA_TYPES = [
+  'imageMessage',
+  'videoMessage',
+  'audioMessage',
+  'stickerMessage',
+  'documentMessage',
+  'voiceMessage',
+  'ptvMessage',
+  'documentWithCaptionMessage',
+];
+
+// ============================================
+// 🔥 CACHE PARA EVITAR DUPLICATAS
+// ============================================
+const processedMessages = new Set();
+const MESSAGE_CACHE_LIMIT = 200;
+
+function cleanMessageCache() {
+  if (processedMessages.size > MESSAGE_CACHE_LIMIT) {
+    const toDelete = processedMessages.size - MESSAGE_CACHE_LIMIT;
+    const iterator = processedMessages.values();
+    for (let i = 0; i < toDelete; i++) {
+      processedMessages.delete(iterator.next().value);
+    }
+  }
+}
+
+function getMessageUniqueId(messageKey) {
+  const { remoteJid, id, fromMe, participant } = messageKey;
+  return `${remoteJid}_${id}_${fromMe}_${participant || 'none'}`;
+}
+
+function resolverRemetenteReal(message) {
+  const key = message.key;
+
+  if (key.participantAlt?.endsWith('@s.whatsapp.net')) {
+    return key.participantAlt;
+  }
+
+  if (key.participant?.endsWith('@s.whatsapp.net')) {
+    return key.participant;
+  }
+
+  if (key.participantAlt && !key.participantAlt.endsWith('@lid')) {
+    return key.participantAlt;
+  }
+
+  return null;
+}
+
+// ============================================
+// 🎯 HANDLER PRINCIPAL
+// ============================================
+export async function handleMessages(sock, message) {
+  try {
+    const uniqueId = getMessageUniqueId(message.key);
+    if (processedMessages.has(uniqueId)) return;
+
+    processedMessages.add(uniqueId);
+    cleanMessageCache();
+
+    if (!message?.key || !message?.message) return;
+
+    const from       = message.key.remoteJid;
+    const userId     = message.key.participant || message.key.remoteJid;
+    const messageKey = message.key;
+
+    const messageType    = Object.keys(message.message || {})[0];
+    const isMediaMessage = MEDIA_TYPES.includes(messageType);
+
+    const content =
+      message.message.conversation ||
+      message.message.extendedTextMessage?.text ||
+      message.message.imageMessage?.caption ||
+      message.message.videoMessage?.caption ||
+      message.message.documentWithCaptionMessage?.message?.documentMessage?.caption ||
+      '';
+
+    // ============================================
+    // 🛡️ CONTROLE DE MENSAGENS DO BOT
+    // ============================================
+    if (message.key.fromMe) {
+      const lowerContent   = content.toLowerCase().trim();
+      const trimmedContent = content.trim();
+
+      if (lowerContent.includes('#all damas')) {
+        if (DEBUG_MODE) console.log('✅ Bot usando #all damas - permitido');
+      } else if (
+        trimmedContent.startsWith('#') ||
+        trimmedContent.startsWith('!') ||
+        trimmedContent.startsWith('@')
+      ) {
+        if (DEBUG_MODE) console.log('✅ Comando do bot - permitido');
+      } else {
+        if (DEBUG_MODE) console.log('⏭️ Ignorado: mensagem comum do bot');
+        return;
+      }
+    }
+
+    if (!content?.trim() && !isMediaMessage) return;
+
+    if (DEBUG_MODE) {
+      console.log(
+        `📨 [${new Date().toLocaleTimeString()}] Tipo: ${messageType} | ` +
+        `isMedia: ${isMediaMessage} | ${userId} em ${from}: ` +
+        `${content.substring(0, 50)}${content.length > 50 ? '...' : ''}`
+      );
+    }
+
+    const lowerContent = content.toLowerCase().trim();
+
+    // ============================================
+    // 📝 REGISTRAR MENSAGEM (apenas no grupo principal)
+    // ============================================
+    if (from === GRUPO_PRINCIPAL && !message.key.fromMe) {
+      trackMensagem(sock, message).catch(err =>
+        console.error('❌ [mensagensTracker] trackMensagem:', err.message)
+      );
+    }
+
+    // 💾 #salva / #s e #contato / #c
+    if (lowerContent.startsWith('#salva') || lowerContent.startsWith('#s ')) {
+      await handleSalvaContato(sock, message);
+      return;
+    }
+
+    if (lowerContent === '#contato' || lowerContent === '#contatos' || lowerContent === '#c') {
+      await handleListarContatos(sock, message);
+      return;
+    }
+
+    // ============================================
+    // 👑 MENU OWNER
+    // ============================================
+    if (lowerContent === '#dmlukownner') {
+      const ownerHandled = await handleOwnerMenu(
+        sock, from, userId, content, OWNER_NUMBERS, message
+      );
+      if (ownerHandled) {
+        if (DEBUG_MODE) console.log('✅ Menu owner processado');
+        return;
+      }
+    }
+
+    // 💌 CONFISSÕES (privado)
+    const isPrivateChat = !from.endsWith('@g.us') && !from.includes('@newsletter');
+    if (isPrivateChat) {
+      const handled = await confissoesHandler.handlePrivateMessage(
+        sock, message, from, userId, content
+      );
+      if (handled) return;
+    }
+
+    // 🎵 Comando #atualizaraudios
+    if (olhinhoHandler.isComandoAtualizar && olhinhoHandler.isComandoAtualizar(message)) {
+      await olhinhoHandler.handleComandoAtualizar(sock, message);
+      return;
+    }
+
+    // 👁️ Reações de olhinho
+    const isReaction = await olhinhoHandler.handleReactionFromMessage(sock, message);
+    if (isReaction) return;
+
+    // 🛡️ Moderação em grupos
+    if (from.endsWith('@g.us')) {
+      await Promise.all([
+        moderacaoAvancada(sock, message),
+        handleAntiLink(sock, message, from),
+      ]);
+    }
+
+    // 🔥 ReplyTag
+    if (message.message?.extendedTextMessage?.contextInfo?.quotedMessage) {
+      const replyResult = await replyTag.processReply(
+        sock, from, userId, content, messageKey, message
+      );
+      if (replyResult?.processed) return;
+    }
+
+    const replyAdminHandled = await replyTag.handleAdminCommands(sock, from, userId, content);
+    if (replyAdminHandled) return;
+
+    // 📋 Comando #regras
+    if (lowerContent.startsWith('#regras')) {
+      const regrasProcessed = await processarComandoRegras(sock, message);
+      if (regrasProcessed) return;
+    }
+
+    // 📜 Poemas
+    if (lowerContent === '#poema' || lowerContent === '#poemas' || lowerContent === '#poe') {
+      if (DEBUG_MODE) console.log('📜 Comando #poemas detectado!');
+      await handlePoemas(sock, message, [], from);
+      return;
+    }
+
+    if (lowerContent === '#atualizarpoemas') {
+      if (DEBUG_MODE) console.log('🔄 Comando #atualizarpoemas detectado!');
+      await handleAtualizarPoemas(sock, message, [], from);
+      return;
+    }
+
+    // ============================================
+    // 💘 GOLPE
+    // ============================================
+    if (lowerContent.includes('#golpe')) {
+      if (DEBUG_MODE) console.log('💘 Comando #golpe detectado!');
+      await golpeHandler(sock, message, from);
+      return;
+    }
+
+    // 🎙️ Dedicatória musical
+    if (lowerContent.startsWith('#play')) {
+      const dedicatoriaHandled = await handleDedicatoriaCommands(sock, message, from);
+      if (dedicatoriaHandled) return;
+    }
+
+    // 🎵 Atualizar config de dedicatória
+    if (lowerContent === '#atualizarmusicas') {
+      if (DEBUG_MODE) console.log('🔄 Comando #atualizarmusicas detectado!');
+      const reloadHandled = await handleReloadConfig(sock, message, from);
+      if (reloadHandled) return;
+    }
+
+    // 🚨 #alerta
+    if (lowerContent === '#atualizarregras' || lowerContent.includes('#alerta')) {
+      if (DEBUG_MODE) console.log(`🔍 Comando detectado: ${lowerContent}`);
+      const alertaProcessed = await alertaHandler(sock, message);
+      if (alertaProcessed) {
+        if (DEBUG_MODE) console.log('✅ Comando processado pelo alertaHandler');
+        return;
+      }
+    }
+
+    // 🎨 Sticker
+    if (lowerContent.startsWith('#stk')) {
+      await handleStickerCommand(sock, message);
+      return;
+    }
+
+    // ✅ 🚫 BANIMENTO
+    if (from.endsWith('@g.us') && content?.includes('#ban')) {
+      await handleBanMessage(sock, message);
+      return;
+    }
+
+    // ✅ 🚫 #not — MODERAÇÃO
+    if (from.endsWith('@g.us')) {
+      const notHandled = await handleNotCommand(sock, message);
+      if (notHandled) return;
+    }
+
+    // ============================================
+    // ✅ #chm, #ok e #vip
+    // ============================================
+    if (from.endsWith('@g.us')) {
+      const chamarHandled = await handleChamarCommand(sock, message, content, from);
+      if (chamarHandled) return;
+    }
+
+    // ============================================
+    // 👑 COMANDOS RAINHA / RANKING
+    // ============================================
+    if (from.endsWith('@g.us')) {
+      const _getMeta = async () => {
+        const meta    = await sock.groupMetadata(from);
+        const admList = meta.participants.filter(p => p.admin).map(p => p.id);
+        return { admList };
+      };
+
+      if (lowerContent === '#rainhadamas') {
+        if (DEBUG_MODE) console.log('👑 Comando #rainhadamas detectado');
+        await rainhaHandler(sock, message);
+        return;
+      }
+
+      if (lowerContent === '#ativos') {
+        if (DEBUG_MODE) console.log('🟢 Comando #ativos detectado');
+        const { admList } = await _getMeta();
+        await ativosHandler(sock, message, admList);
+        return;
+      }
+
+      if (lowerContent === '#inativos') {
+        if (DEBUG_MODE) console.log('🔴 Comando #inativos detectado');
+        const { admList } = await _getMeta();
+        await inativosHandler(sock, message, admList, GRUPO_PRINCIPAL);
+        return;
+      }
+
+      if (lowerContent === '#rankdamas') {
+        if (DEBUG_MODE) console.log('🏆 Comando #rankdamas detectado');
+        await rankdamasHandler(sock, message);
+        return;
+      }
+    }
+
+    // ============================================
+    // 🎭 PERFIL
+    // ============================================
+    if (lowerContent.includes('#perfil')) {
+      if (DEBUG_MODE) console.log('🎭 Comando #perfil detectado!');
+      await perfilHandler(sock, message);
+      return;
+    }
+
+    if (lowerContent === '#atualizarperfil') {
+      if (DEBUG_MODE) console.log('🔄 Comando #atualizarperfil detectado!');
+      await atualizarPerfilHandler(sock, message);
+      return;
+    }
+
+    // ============================================
+    // ☀️ SAUDAÇÕES
+    // ============================================
+    if (lowerContent === '#bomdia' || lowerContent === '#bd') {
+      if (DEBUG_MODE) console.log('☀️ Comando #bomdia detectado!');
+      await handleBomDia(sock, message, [], from);
+      return;
+    }
+
+    if (lowerContent === '#boatarde' || lowerContent === '#bt') {
+      if (DEBUG_MODE) console.log('🌇 Comando #boatarde detectado!');
+      await handleBoaTarde(sock, message, [], from);
+      return;
+    }
+
+    if (lowerContent === '#boanoite' || lowerContent === '#bn') {
+      if (DEBUG_MODE) console.log('🌃 Comando #boanoite detectado!');
+      await handleBoaNoite(sock, message, [], from);
+      return;
+    }
+
+    if (lowerContent === '#atualizarsaudacoes') {
+      if (DEBUG_MODE) console.log('🔄 Comando #atualizarsaudacoes detectado!');
+      await handleAtualizarSaudacoes(sock, message, [], from);
+      return;
+    }
+
+    // 💌 CONFISSÕES (grupo)
+    if (from.endsWith('@g.us')) {
+      if (lowerContent === '#avisarconfissoes') {
+        const avisoPosted = await confissoesHandler.postarAvisoConfissoes(
+          sock, from, userId, messageKey
+        );
+        if (avisoPosted) return;
+      }
+
+      if (lowerContent === '#postarconfissoes') {
+        const confissaoPosted = await confissoesHandler.handleManualPost(
+          sock, from, userId, messageKey
+        );
+        if (confissaoPosted) return;
+      }
+    }
+
+    // 🔮 Signos
+    const signosHandled = await handleSignos(sock, message);
+    if (signosHandled) {
+      if (DEBUG_MODE) console.log('✅ Comando de signos processado');
+      return;
+    }
+
+    // 🔒 Comandos de grupo
+    const groupCommandHandled = await handleGroupCommands(sock, message);
+    if (groupCommandHandled) {
+      if (DEBUG_MODE) console.log('✅ Comando de grupo processado');
+      return;
+    }
+
+    // ============================================
+    // 🤖 CONTROLE DA IA — #ativar / #pausar
+    // Só aceita comandos vindos do GRUPO_CONTROLE
+    // e age sempre sobre o GRUPO_PRINCIPAL
+    // ============================================
+    if (from === GRUPO_CONTROLE && !message.key.fromMe) {
+      if (lowerContent === '#ativar') {
+        if (DEBUG_MODE) console.log('🟢 Comando #ativar recebido no grupo de controle');
+        ativarIA(GRUPO_PRINCIPAL);
+        await sock.sendMessage(from, { text: '🟢 IA ativada no grupo principal!' }, { quoted: message });
+        return;
+      }
+
+      if (lowerContent === '#pausar') {
+        if (DEBUG_MODE) console.log('🔴 Comando #pausar recebido no grupo de controle');
+        pausarIA(GRUPO_PRINCIPAL);
+        await sock.sendMessage(from, { text: '🔴 IA pausada no grupo principal!' }, { quoted: message });
+        return;
+      }
+    }
+
+    // ============================================
+    // 🔀 COMANDOS POR PRIORIDADE
+    // ============================================
+    const handled = await processCommandPriorities(
+      sock, message, from, userId, content,
+      OWNER_NUMBERS, autoTag, pool,
+      { messageType, isMediaMessage }
+    );
+
+    if (!handled) {
+      await handleBasicCommands(sock, message, from, userId, content, pool, {
+        messageType,
+        isMediaMessage,
+      });
+    }
+
+    // ============================================
+    // 🤖 RESPOSTA NATURAL COM IA
+    // Só responde no GRUPO_PRINCIPAL, nunca no grupo admins
+    // nem no grupo de controle, e só se a IA estiver ativa
+    // ============================================
+    if (
+      from === GRUPO_PRINCIPAL &&
+      !message.key.fromMe &&
+      isIAAtiva(from) &&
+      content?.trim() &&
+      !content.trim().startsWith('#') &&
+      !content.trim().startsWith('!')
+    ) {
+      const remetente = resolverRemetenteReal(message) || userId;
+      const resposta  = await responderNaturalmente(remetente, content.trim());
+      if (resposta) {
+        await sock.sendMessage(from, { text: resposta }, { quoted: message });
+      }
+    }
+
+  } catch (err) {
+    console.error('❌ Erro ao processar mensagem:', err.message);
+    if (DEBUG_MODE) console.error(err.stack);
+  }
+}
+
+// ============================================
+// 📌 HANDLERS AUXILIARES
+// ============================================
+export async function handleReactions(sock, reaction) {
+  try {
+    await olhinhoHandler.handleReaction(sock, reaction);
+  } catch (err) {
+    console.error('❌ Erro ao processar reação:', err.message);
+  }
+}
+
+export async function updateGroupOnJoin(sock, groupId) {
+  try {
+    const count = await autoTag.updateGroup(sock, groupId);
+    if (DEBUG_MODE) console.log(`✅ Grupo ${groupId}: ${count} membros`);
+  } catch (error) {
+    console.error('❌ Erro ao atualizar grupo:', error.message);
+  }
+}
+
+export async function handleGroupParticipantsUpdate(sock, update) {
+  try {
+    await handleGroupUpdate(sock, update);
+
+    if (update.action === 'remove') {
+      if (DEBUG_MODE) {
+        console.log(`\n👋 ========= PROCESSANDO SAÍDA/REMOÇÃO =========`);
+        console.log(`🎬 Ação detectada: "${update.action}"`);
+        console.log(`👮 Author (quem executou): ${update.author}`);
+        console.log(`👥 Total de participantes afetados: ${update.participants.length}`);
+      }
+
+      await configurarDespedida(sock, update);
+
+      if (DEBUG_MODE) {
+        console.log(`✅ Despedida processada`);
+        console.log(`==============================================\n`);
+      }
+    }
+
+  } catch (err) {
+    console.error('❌ Erro ao processar atualização de participantes:', err.message);
+    if (DEBUG_MODE) console.error(err.stack);
+  }
+}
+
+export function getCacheStats() {
+  return {
+    totalProcessed : processedMessages.size,
+    cacheLimit     : MESSAGE_CACHE_LIMIT,
+    usagePercent   : ((processedMessages.size / MESSAGE_CACHE_LIMIT) * 100).toFixed(1),
+  };
+}
+
+export function clearMessageCache() {
+  const size = processedMessages.size;
+  processedMessages.clear();
+  if (DEBUG_MODE) console.log(`🧹 Cache limpo: ${size} mensagens`);
+}
