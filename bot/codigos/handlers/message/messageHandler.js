@@ -48,7 +48,7 @@ const DEBUG_MODE = process.env.DEBUG === 'true';
 // ============================================
 const GRUPO_PRINCIPAL = '120363414543392978@g.us';
 const GRUPO_ADMINS    = '120363421857537823@g.us';
-const GRUPO_CONTROLE  = '120363407299974710@g.us'; // grupo onde ficam os comandos #ativar / #pausar
+const GRUPO_CONTROLE  = '120363407299974710@g.us';
 
 const MEDIA_TYPES = [
   'imageMessage',
@@ -421,21 +421,22 @@ export async function handleMessages(sock, message) {
 
     // ============================================
     // 🤖 CONTROLE DA IA — #ativar / #pausar
-    // Só aceita comandos vindos do GRUPO_CONTROLE
-    // e age sempre sobre o GRUPO_PRINCIPAL
+    // Ativa/pausa nos dois grupos ao mesmo tempo
     // ============================================
     if (from === GRUPO_CONTROLE && !message.key.fromMe) {
       if (lowerContent === '#ativar') {
         if (DEBUG_MODE) console.log('🟢 Comando #ativar recebido no grupo de controle');
         ativarIA(GRUPO_PRINCIPAL);
-        await sock.sendMessage(from, { text: '🟢 IA ativada no grupo principal!' }, { quoted: message });
+        ativarIA(GRUPO_CONTROLE);
+        await sock.sendMessage(from, { text: '🟢 IA ativada nos dois grupos!' }, { quoted: message });
         return;
       }
 
       if (lowerContent === '#pausar') {
         if (DEBUG_MODE) console.log('🔴 Comando #pausar recebido no grupo de controle');
         pausarIA(GRUPO_PRINCIPAL);
-        await sock.sendMessage(from, { text: '🔴 IA pausada no grupo principal!' }, { quoted: message });
+        pausarIA(GRUPO_CONTROLE);
+        await sock.sendMessage(from, { text: '🔴 IA pausada nos dois grupos!' }, { quoted: message });
         return;
       }
     }
@@ -458,11 +459,12 @@ export async function handleMessages(sock, message) {
 
     // ============================================
     // 🤖 RESPOSTA NATURAL COM IA
-    // Só responde no GRUPO_PRINCIPAL, nunca no grupo admins
-    // nem no grupo de controle, e só se a IA estiver ativa
+    // Responde no GRUPO_PRINCIPAL e no GRUPO_CONTROLE
+    // cada grupo tem seu próprio estado de ativação
+    // #ativar liga os dois, #pausar desliga os dois
     // ============================================
     if (
-      from === GRUPO_PRINCIPAL &&
+      (from === GRUPO_PRINCIPAL || from === GRUPO_CONTROLE) &&
       !message.key.fromMe &&
       isIAAtiva(from) &&
       content?.trim() &&
