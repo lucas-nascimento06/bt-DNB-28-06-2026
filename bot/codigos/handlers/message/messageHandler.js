@@ -23,6 +23,7 @@ import { handleChamarCommand } from '../command/chamarHandler.js';
 import { golpeHandler } from '../command/golpeHandler.js';
 import { responderNaturalmente, ativarIA, pausarIA, isIAAtiva } from '../../utils/mistralClient.js';
 import { handleSalvaContato, handleListarContatos } from '../command/contatoHandler.js';
+import { enviarMayaSticker } from '../../utils/mayaStickerSender.js';
 import { perfilHandler, atualizarPerfilHandler } from '../command/perfilHandler.js';
 import {
   handleBomDia,
@@ -421,7 +422,6 @@ export async function handleMessages(sock, message) {
 
     // ============================================
     // 🤖 CONTROLE DA IA — #ativar / #pausar
-    // Ativa/pausa nos dois grupos ao mesmo tempo
     // ============================================
     if (from === GRUPO_CONTROLE && !message.key.fromMe) {
       if (lowerContent === '#ativar') {
@@ -459,9 +459,9 @@ export async function handleMessages(sock, message) {
 
     // ============================================
     // 🤖 RESPOSTA NATURAL COM IA
-    // Responde no GRUPO_PRINCIPAL e no GRUPO_CONTROLE
-    // cada grupo tem seu próprio estado de ativação
-    // #ativar liga os dois, #pausar desliga os dois
+    // ✅ Sticker OU texto — nunca os dois
+    // ✅ Contexto = texto do usuário
+    // ✅ Sticker marca o usuário com quoted
     // ============================================
     if (
       (from === GRUPO_PRINCIPAL || from === GRUPO_CONTROLE) &&
@@ -472,9 +472,16 @@ export async function handleMessages(sock, message) {
       !content.trim().startsWith('!')
     ) {
       const remetente = resolverRemetenteReal(message) || userId;
-      const resposta  = await responderNaturalmente(remetente, content.trim());
-      if (resposta) {
-        await sock.sendMessage(from, { text: resposta }, { quoted: message });
+
+      // 1️⃣ Tenta sticker primeiro, baseado no texto do USUÁRIO
+      const stickerEnviado = await enviarMayaSticker(sock, from, content.trim(), message);
+
+      if (!stickerEnviado) {
+        // 2️⃣ Só responde com texto se não mandou sticker
+        const resposta = await responderNaturalmente(remetente, content.trim());
+        if (resposta) {
+          await sock.sendMessage(from, { text: resposta }, { quoted: message });
+        }
       }
     }
 

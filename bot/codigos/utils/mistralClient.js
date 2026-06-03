@@ -1,44 +1,38 @@
 import fetch from 'node-fetch';
+import pool from '../../../db.js';
+import {
+  buildSystemPrompt,
+  AVISO_PROIBIDO,
+  AVISO_OFENSIVO_PROMPT,
+  PALAVRAS_PROIBIDAS,
+  PALAVROES_GRAVES,
+} from './mayaPrompts.js';
 
 const MISTRAL_API_KEY = process.env.MISTRAL_API_KEY;
 const MISTRAL_API_URL = 'https://api.mistral.ai/v1/chat/completions';
 
-const SYSTEM_PROMPT = `Você é uma participante de um grupo de WhatsApp chamado "Damas da Night".
-Seu nome é Maya Kyteler. Você é descontraída, carinhosa e fala como uma pessoa real — sem formalidade.
-Use gírias leves, emoji com moderação, e responda de forma curta e natural.
-Se falarem sobre um assunto, entre na conversa como se fosse uma amiga respondendo diretamente à pessoa.
-NUNCA diga que é um bot ou IA. Nunca use asteriscos para negrito. Máximo 3 linhas por resposta.
-
-IMPORTANTE SOBRE COMO FALAR:
-- Você está sempre respondendo UMA pessoa, nunca um grupo.
-- NUNCA use "gente", "pessoal", "vocês" ou palavras no plural.
-- Fale de forma natural — NÃO force termos carinhosos como "mozao", "bb", "amor" em toda resposta.
-- De vez em quando use termos carinhosos de forma natural: "mozao", "xuxu", "bb", "amor" — mas não em toda mensagem, só quando fizer sentido no contexto.
-- Exemplos corretos: "kkk é verdade", "nossa que situação", "tô aqui sim 😄".
-- Exemplos ERRADOS: forçar "mozao" ou "amor" em toda mensagem.
-
-IMPORTANTE SOBRE GÊNERO:
-- Você NÃO sabe o gênero de quem está falando.
-- NUNCA use palavras generificadas como "lindo", "linda", "gato", "gata", "querida", "querido".
-- Apelidos neutros permitidos: "mozao", "xuxu", "bb", "amor" — use com naturalidade, não force.
-
-IMPORTANTE SOBRE HORÁRIO:
-- Você receberá o horário atual do Brasil no início de cada mensagem.
-- Use isso pra contextualizar suas respostas. Se é de manhã, responda "bom dia" se fizer sentido. Se é tarde da noite, demonstre isso naturalmente.
-- Não mencione o horário diretamente a não ser que seja relevante.`;
+// ============================================
+// 🔍 BUSCA NOME DO USUÁRIO NO BANCO
+// ============================================
+async function getNomeUsuario(numero) {
+  try {
+    const numeroLimpo = numero.replace('@s.whatsapp.net', '').replace(/\D/g, '');
+    const res = await pool.query(
+      `SELECT nome FROM mensagens_grupo
+       WHERE usuario_id = $1 AND nome IS NOT NULL AND nome != ''
+       ORDER BY id DESC LIMIT 1`,
+      [numeroLimpo]
+    );
+    return res.rows[0]?.nome ?? null;
+  } catch (err) {
+    console.error('❌ [Maya Kyteler] Erro ao buscar nome:', err.message);
+    return null;
+  }
+}
 
 // ============================================
 // 🚨 MODERAÇÃO DE CONTEÚDO
 // ============================================
-const PALAVRAS_PROIBIDAS = [
-  'pedofilia', 'pedófilo', 'zoofilia', 'estupro', 'abuso infantil',
-  'criança nua', 'menor de idade', 'cp ', 'gore', 'snuff',
-];
-
-const PALAVROES_GRAVES = [
-  'viado', 'viadinho', 'bicha', 'macaco', 'negão', 'judeu',
-];
-
 function verificarConteudo(texto) {
   const lower = texto.toLowerCase();
   for (const palavra of PALAVRAS_PROIBIDAS) {
@@ -49,13 +43,6 @@ function verificarConteudo(texto) {
   }
   return 'ok';
 }
-
-const AVISO_PROIBIDO =
-  '⚠️ Ei, isso aqui não rola! Esse tipo de assunto é totalmente proibido no grupo. Respeito é o mínimo! 🚫';
-
-const AVISO_OFENSIVO_PROMPT = `Alguém no grupo usou uma palavra ofensiva ou xingamento.
-Responda como Maya Kyteler, de forma curta, carinhosa mas firme, pedindo respeito no grupo.
-Não use asteriscos. Máximo 2 linhas.`;
 
 async function gerarAvisoOfensivo() {
   try {
@@ -68,7 +55,7 @@ async function gerarAvisoOfensivo() {
       body: JSON.stringify({
         model: 'mistral-small-latest',
         messages: [
-          { role: 'system', content: SYSTEM_PROMPT },
+          { role: 'system', content: buildSystemPrompt(null) },
           { role: 'user', content: AVISO_OFENSIVO_PROMPT },
         ],
         max_tokens: 80,
@@ -87,8 +74,15 @@ async function gerarAvisoOfensivo() {
 // 🕐 PERÍODO DO DIA (horário de Brasília)
 // ============================================
 function getPeriodoDia() {
-  const agora = new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' });
-  const hora = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' })).getHours();
+  const now = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' }));
+
+  const diasSemana = [
+    'domingo', 'segunda-feira', 'terça-feira', 'quarta-feira',
+    'quinta-feira', 'sexta-feira', 'sábado',
+  ];
+  const diaSemana = diasSemana[now.getDay()];
+  const agora = now.toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+  const hora = now.getHours();
 
   let periodo;
   if (hora >= 5 && hora < 12) periodo = 'manhã';
@@ -96,7 +90,14 @@ function getPeriodoDia() {
   else if (hora >= 18 && hora < 23) periodo = 'noite';
   else periodo = 'madrugada';
 
-  return `[Contexto de horário: agora são ${agora}, período: ${periodo}]`;
+  return `[Contexto de horário: hoje é ${diaSemana}, ${agora}, período: ${periodo}]`;
+}
+
+// ============================================
+// 🧹 REMOVE PREFIXO SE O MODELO TEIMAR
+// ============================================
+function limparResposta(texto) {
+  return texto.replace(/^Maya\s*:\s*/i, '').trim();
 }
 
 // ============================================
@@ -125,7 +126,7 @@ export function isIAAtiva(groupId) {
 }
 
 // ============================================
-// ⏱️ DELAY HUMANO — entre 30 e 60 segundos
+// ⏱️ DELAY HUMANO — entre 20 e 25 segundos
 // ============================================
 function delayHumano() {
   const ms = Math.floor(Math.random() * (25000 - 20000 + 1)) + 20000;
@@ -152,6 +153,13 @@ export async function responderNaturalmente(userId, textoUsuario) {
       return await gerarAvisoOfensivo();
     }
 
+    // 🔍 Busca nome do usuário no banco
+    const nome = await getNomeUsuario(userId);
+    console.log('👤 Nome encontrado:', nome, '| userId:', userId);
+    if (nome) {
+      console.log(`👤 [Maya Kyteler] Falando com: ${nome}`);
+    }
+
     // ⏱️ Esperar antes de responder
     await delayHumano();
 
@@ -160,7 +168,6 @@ export async function responderNaturalmente(userId, textoUsuario) {
     }
     const historico = historicos.get(userId);
 
-    // Adiciona contexto de horário na mensagem do usuário
     const periodoAtual = getPeriodoDia();
     const mensagemComContexto = `${periodoAtual}\n${textoUsuario}`;
 
@@ -179,7 +186,7 @@ export async function responderNaturalmente(userId, textoUsuario) {
       body: JSON.stringify({
         model: 'mistral-small-latest',
         messages: [
-          { role: 'system', content: SYSTEM_PROMPT },
+          { role: 'system', content: buildSystemPrompt(nome) },
           ...historico,
         ],
         max_tokens: 150,
@@ -188,7 +195,8 @@ export async function responderNaturalmente(userId, textoUsuario) {
     });
 
     const data = await response.json();
-    const resposta = data.choices?.[0]?.message?.content?.trim();
+    const respostaBruta = data.choices?.[0]?.message?.content?.trim();
+    const resposta = respostaBruta ? limparResposta(respostaBruta) : null;
 
     if (resposta) {
       historico.push({ role: 'assistant', content: resposta });

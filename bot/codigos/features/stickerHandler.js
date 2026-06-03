@@ -530,4 +530,4 @@ export async function handleStickerCommand(sock, msg) {
     }
 }
 
-export { stickerHandler };
+export { stickerHandler, createSimpleSticker };
