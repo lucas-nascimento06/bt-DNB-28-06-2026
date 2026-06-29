@@ -3,7 +3,7 @@
 import { Jimp } from 'jimp';
 import axios from 'axios';
 
-const GRUPO_PRINCIPAL = '120363414543392978@g.us';
+const GRUPO_PRINCIPAL = '120363412511975026@g.us';
 
 /**
  * Gera uma thumbnail a partir de uma URL ou buffer.

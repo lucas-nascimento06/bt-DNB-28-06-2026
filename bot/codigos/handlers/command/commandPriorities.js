@@ -9,6 +9,7 @@ import {
     handleVarreduraCommand,
     handleHoroscopoLegacy
 } from './commandHandlers.js';
+import { handlePromoverRebaixar } from './promoverHandler.js'; // 👈 NOVO
 
 export async function processCommandPriorities(
     sock, message, from, userId, content,
@@ -58,6 +59,9 @@ export async function processCommandPriorities(
     if (!handled) handled = await handleBlacklistGroup(sock, from, userId, content, message);
     if (!handled) handled = await handleVarreduraCommand(sock, message, content, from, userId);
     if (!handled) handled = await handleHoroscopoLegacy(sock, message, content, from);
+
+    // 👑 PRIORIDADE 10: PROMOVER / REBAIXAR
+    if (!handled) handled = await handlePromoverRebaixar(sock, message, from, userId);
 
     return handled;
 }
