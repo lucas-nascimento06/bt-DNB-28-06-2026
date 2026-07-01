@@ -21,28 +21,45 @@ const DEBUG_MODE = process.env.DEBUG === 'true';
 // ============================================
 // 💬 MENSAGENS PARA O INFRATOR
 // ============================================
-const AVISO_INFRATOR_1 = `⚠️ *[AVISO - CONTEÚDO REMOVIDO]*
+const AVISO_INFRATOR_1 = `👏🍻 *DﾑMﾑS* 💃🔥 *Dﾑ* *NIGӇԵ* 💃🎶🍾🍸
 
-Olá! Você recebeu uma advertência por descumprir uma das regras do grupo. Leia atentamente para evitar novas punições.
+⚠️ *[AVISO - CONTEÚDO REMOVIDO]*
 
-🚫 *Não é permitido no grupo:*
-• Enviar fotos, vídeos, figurinhas (stickers) ou qualquer conteúdo com nudez ou seminudez.
-• Compartilhar conteúdo envolvendo pedofilia, zoofilia ou qualquer material ilegal.
-• Se passar por administrador, moderador ou dono do grupo sem autorização.
-• Fingir possuir cargos ou permissões que você não tem.
-• Chamar membros no privado sem a autorização deles ou insistir em conversas privadas indesejadas.
-• Provocar discussões, brigas ou criar tumulto no grupo.
-• Utilizar palavras de baixo calão, ofensas, xingamentos ou desrespeitar outros membros.
-• Enviar prints de conversas privadas sem a autorização das pessoas envolvidas.
-• Burlar as regras do grupo ou incentivar outros membros a fazê-lo.
+Olá! 👋
+
+Você recebeu uma *advertência* por descumprir uma das regras do grupo.
+
+📖 Leia atentamente as regras abaixo para evitar novas punições.
+
+🚫 *É PROIBIDO NO GRUPO:*
+
+🔞 Enviar fotos, vídeos, GIFs, figurinhas (stickers) ou qualquer conteúdo com nudez ou seminudez.
+
+🚔 Compartilhar conteúdo envolvendo pedofilia, zoofilia ou qualquer outro material ilegal.
+
+👑 Se passar por administrador, moderador ou dono do grupo sem autorização.
+
+🎭 Fingir possuir cargos ou permissões que você não possui.
+
+💬 Chamar membros no privado sem autorização ou insistir em conversas particulares indesejadas.
+
+🔥 Provocar discussões, brigas ou tumultuar o grupo.
+
+🤬 Utilizar palavrões, ofensas, xingamentos ou desrespeitar outros membros.
+
+📸 Compartilhar prints de conversas privadas sem autorização das pessoas envolvidas.
+
+⚠️ Burlar as regras do grupo ou incentivar outros membros a fazer o mesmo.
 
 ⚠️ Esta é sua *1ª advertência*.
 
-Em caso de reincidência, você poderá ser removido automaticamente do grupo, sem novo aviso.
+Em caso de reincidência, você poderá ser removido automaticamente do grupo.
 
 Agradecemos a compreensão e contamos com sua colaboração para manter o grupo organizado e seguro para todos.`;
 
-const AVISO_INFRATOR_2 = `🚨 *[REMOVIDO DO GRUPO]*
+const AVISO_INFRATOR_2 = `👏🍻 *DﾑMﾑS* 💃🔥 *Dﾑ* *NIGӇԵ* 💃🎶🍾🍸
+
+🚨 *[REMOVIDO DO GRUPO]*
 
 Você foi *removido do grupo* por reincidência no envio de conteúdo inapropriado.
 
@@ -54,32 +71,42 @@ Se acredita que foi um engano, entre em contato com um administrador.`;
 // 💬 MENSAGENS PARA O ADMIN
 // ============================================
 const FEEDBACK_ADMIN_1 = (numeroInfrator) =>
-`✅ *[AÇÃO REGISTRADA — #not]*
+`👏🍻 *DﾑMﾑS* 💃🔥 *Dﾑ* *NIGӇԵ* 💃🎶🍾🍸
+
+✅ *[AÇÃO REGISTRADA — #not]*
 
 O usuário *+${numeroInfrator}* foi notificado no privado sobre a remoção do conteúdo.
 
 📋 Esta é a *1ª advertência* dele. Caso reincida e você use *#not* novamente, ele será *removido automaticamente* do grupo.`;
 
 const FEEDBACK_ADMIN_2 = (numeroInfrator) =>
-`🚨 *[USUÁRIO REMOVIDO — #not]*
+`👏🍻 *DﾑMﾑS* 💃🔥 *Dﾑ* *NIGӇԵ* 💃🎶🍾🍸
+
+🚨 *[USUÁRIO REMOVIDO — #not]*
 
 O usuário *+${numeroInfrator}* foi *removido automaticamente* do grupo por reincidência e *adicionado à blacklist* 🛑
 
 Esta era a 2ª (ou mais) infração registrada para esse usuário neste grupo.
 Se ele tentar entrar novamente, será removido automaticamente.`;
 
-const ERRO_NAO_E_RESPOSTA = `⚠️ *[#not — USO INCORRETO]*
+const ERRO_NAO_E_RESPOSTA = `👏🍻 *DﾑMﾑS* 💃🔥 *Dﾑ* *NIGӇԵ* 💃🎶🍾🍸
 
-Para usar o *#not*, você precisa *responder* a mensagem inapropriada.
+⚠️ *[#not — USO INCORRETO]*
+
+Para usar o *#not*, você precisa *responder* à mensagem inapropriada.
 
 📌 *Como usar:*
 1. Toque e segure na mensagem inapropriada
 2. Selecione *"Responder"*
 3. Digite *#not* e envie`;
 
-const ERRO_NAO_E_ADMIN = `⛔ Apenas administradores podem usar o comando *#not*.`;
+const ERRO_NAO_E_ADMIN = `👏🍻 *DﾑMﾑS* 💃🔥 *Dﾑ* *NIGӇԵ* 💃🎶🍾🍸
 
-const ERRO_NAO_HA_INFRATOR = `⚠️ *[#not — ERRO]*
+⛔ Apenas administradores podem usar o comando *#not*.`;
+
+const ERRO_NAO_HA_INFRATOR = `👏🍻 *DﾑMﾑS* 💃🔥 *Dﾑ* *NIGӇԵ* 💃🎶🍾🍸
+
+⚠️ *[#not — ERRO]*
 
 Não consegui identificar o autor da mensagem citada.
 Isso pode ocorrer quando o usuário não está mais no grupo ou o WhatsApp não forneceu os dados.`;

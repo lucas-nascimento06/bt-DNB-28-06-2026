@@ -38,6 +38,10 @@ import { rankdamasHandler } from '../command/rankdamasHandler.js';
 import { rainhaHandler } from '../command/rainhaHandler.js';
 import { trackMensagem } from '../../features/mensagensTracker.js';
 
+
+// 🐄 IMPORT — medidor de gado
+import { gadoCommandHandler } from '../command/gadoHandler.js';
+
 const autoTag = new AutoTagHandler();
 const replyTag = new ReplyTagHandler();
 
@@ -308,6 +312,17 @@ export async function handleMessages(sock, message) {
     if (from.endsWith('@g.us')) {
       const chamarHandled = await handleChamarCommand(sock, message, content, from);
       if (chamarHandled) return;
+    }
+
+
+     // ============================================
+    // 🐄 MEDIDOR DE GADO — #gado / !gado
+    // ============================================
+    if (lowerContent.startsWith('#gado') || lowerContent.startsWith('!gado')) {
+      if (DEBUG_MODE) console.log('🐄 Comando #gado detectado!');
+      const mentionedJid = message.message?.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
+      await gadoCommandHandler(sock, message, from, mentionedJid);
+      return;
     }
 
     // ============================================
