@@ -23,14 +23,24 @@ const DEBUG_MODE = process.env.DEBUG === 'true';
 // ============================================
 const AVISO_INFRATOR_1 = `⚠️ *[AVISO - CONTEÚDO REMOVIDO]*
 
-Olá! Uma mensagem sua foi removida pelo administrador do grupo.
+Olá! Você recebeu uma advertência por descumprir uma das regras do grupo. Leia atentamente para evitar novas punições.
 
-🚫 *Não é permitido enviar:*
-- Figurinhas/imagens com conteúdo sexual
-- Fotos ou vídeos inapropriados
-- Conteúdo ofensivo, terrorista ou violento
+🚫 *Não é permitido no grupo:*
+• Enviar fotos, vídeos, figurinhas (stickers) ou qualquer conteúdo com nudez ou seminudez.
+• Compartilhar conteúdo envolvendo pedofilia, zoofilia ou qualquer material ilegal.
+• Se passar por administrador, moderador ou dono do grupo sem autorização.
+• Fingir possuir cargos ou permissões que você não tem.
+• Chamar membros no privado sem a autorização deles ou insistir em conversas privadas indesejadas.
+• Provocar discussões, brigas ou criar tumulto no grupo.
+• Utilizar palavras de baixo calão, ofensas, xingamentos ou desrespeitar outros membros.
+• Enviar prints de conversas privadas sem a autorização das pessoas envolvidas.
+• Burlar as regras do grupo ou incentivar outros membros a fazê-lo.
 
-Esta é sua *1ª advertência*. Se reincedir, você será removido automaticamente do grupo.`;
+⚠️ Esta é sua *1ª advertência*.
+
+Em caso de reincidência, você poderá ser removido automaticamente do grupo, sem novo aviso.
+
+Agradecemos a compreensão e contamos com sua colaboração para manter o grupo organizado e seguro para todos.`;
 
 const AVISO_INFRATOR_2 = `🚨 *[REMOVIDO DO GRUPO]*
 
