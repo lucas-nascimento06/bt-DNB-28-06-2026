@@ -24,6 +24,7 @@ import { golpeHandler } from '../command/golpeHandler.js';
 import { responderNaturalmente, ativarIA, pausarIA, isIAAtiva } from '../../utils/mistralClient.js';
 import { handleSalvaContato, handleListarContatos } from '../command/contatoHandler.js';
 import { enviarMayaSticker } from '../../utils/mayaStickerSender.js';
+import { handleTraduzMusica } from '../musica/traduzMusicaHandler.js';
 import { perfilHandler, atualizarPerfilHandler } from '../command/perfilHandler.js';
 import {
   handleBomDia,
@@ -41,6 +42,9 @@ import { trackMensagem } from '../../features/mensagensTracker.js';
 
 // 🐄 IMPORT — medidor de gado
 import { gadoCommandHandler } from '../command/gadoHandler.js';
+
+// 🍺 IMPORT — teste do bêbado
+import { bebadoCommandHandler } from '../command/bebadoHandler.js';
 
 const autoTag = new AutoTagHandler();
 const replyTag = new ReplyTagHandler();
@@ -314,6 +318,15 @@ export async function handleMessages(sock, message) {
       if (chamarHandled) return;
     }
 
+    // ============================================
+    // 🌍 TRADUÇÃO DE MÚSICA — #traduz
+    // ============================================
+    if (lowerContent === '#traduz') {
+      if (DEBUG_MODE) console.log('🌍 Comando #traduz detectado!');
+      const traduzHandled = await handleTraduzMusica(sock, message, content, from);
+      if (traduzHandled) return;
+    }
+
 
      // ============================================
     // 🐄 MEDIDOR DE GADO — #gado / !gado
@@ -324,6 +337,18 @@ export async function handleMessages(sock, message) {
       await gadoCommandHandler(sock, message, from, mentionedJid);
       return;
     }
+
+    // ============================================
+    // 🍺 TESTE DO BÊBADO — #bebado / !bebado
+    // ============================================
+    if (lowerContent.startsWith('#bebado') || lowerContent.startsWith('!bebado')) {
+      if (DEBUG_MODE) console.log('🍺 Comando #bebado detectado!');
+      const mentionedJid = message.message?.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
+      await bebadoCommandHandler(sock, message, from, mentionedJid);
+      return;
+    }
+
+    
 
     // ============================================
     // 👑 COMANDOS RAINHA / RANKING

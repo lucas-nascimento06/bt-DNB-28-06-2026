@@ -22,26 +22,19 @@ let signos = {};
 let signosCarregados = false;
 let envioEmAndamento = false;
 
-// ============================================
-// 🔧 FUNÇÕES AUXILIARES
-// ============================================
-
 function extractDigits(number) {
     if (typeof number !== 'string') {
         console.warn('⚠️ extractDigits recebeu tipo inválido:', typeof number, number);
         return '';
     }
-    
     let digits = number.replace(/@.*$/, '').replace(/\D/g, '');
-    
     if (digits.length === 11 && !digits.startsWith('55')) {
         digits = '55' + digits;
     }
-    
     return digits;
 }
 
-const formatarCabecalho = () => 
+const formatarCabecalho = () =>
     'ஓீᤢ✧͢⃟ᤢ̤̤̤̤̤̤̤̤̤̤̤̤̤̤̤̤̤̣̣̣̣̣̣̣̣̣̣̣̣̣̣̣̣̣̣̣̣̣̣̼̬🔮ஓீᤢ✧͢⃟ᤢ̤̤̤̤̤̤̤̤̤̤̤̤̤̤̤̣̣̣̣̣̣̣̣̣̣̣̣̣̣̣̣̣̼̬🔮ஓீᤢ✧͢⃟ᤢ̤̤̤̤̤̤̤̤̤̤̤̤̤̤̤̤̣̣̣̣̣̣̣̣̣̣̣̣̣̣̣̣̣̣̣̣̣̣̣̣̣̣̣̣̼̬🔮\n💃 ⃝⃕፝⃟Oráculo das Damas⸵░⃟☪️\n᭥ꩌ゚໋ ꯴᩠ꦽꦼ⛓️↦᭥ꩌ゚໋ ꯴᩠ꦽꦼ⛓️↦᭥ꩌ゚໋ ꯴᩠ꦽꦼ⛓️\n𝔇𝔞𝔪𝔞𝔰 𝔡𝔞 𝔑𝔦𝔤𝔥𝔱\n🔮 ⃢───𖡜ꦽ̸ོ˚￫───ཹ🔮💃🏻 ݇-݈\n°︠︠︠︠︠︠︠︠𖡬 ᭄\n\n';
 
 const formatarRodape = () => {
@@ -57,15 +50,24 @@ const formatarRodape = () => {
 export async function carregarSignos() {
     try {
         console.log('🔄 Carregando signos...');
-        const response = await fetch(URL_SIGNOS, {
-            headers: { 'User-Agent': 'Mozilla/5.0', 'Accept': 'application/json' },
+
+        // Cache-busting: evita pegar versão em cache do CDN do GitHub (Fastly)
+        const urlSemCache = `${URL_SIGNOS}?t=${Date.now()}`;
+
+        const response = await fetch(urlSemCache, {
+            headers: {
+                'User-Agent': 'Mozilla/5.0',
+                'Accept': 'application/json',
+                'Cache-Control': 'no-cache, no-store, must-revalidate',
+                'Pragma': 'no-cache'
+            },
             timeout: 15000
         });
-        
+
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        
+
         signos = await response.json();
-        
+
         console.log('🔍 Validando estrutura dos signos...');
         let validos = 0;
         for (const [key, signo] of Object.entries(signos)) {
@@ -75,7 +77,7 @@ export async function carregarSignos() {
                 validos++;
             }
         }
-        
+
         signosCarregados = true;
         console.log(`✅ ${validos}/${Object.keys(signos).length} signos carregados com sucesso!`);
         return true;
@@ -110,25 +112,25 @@ async function resolverNumeroReal(sock, senderJid, chatJid) {
             try {
                 const groupMetadata = await sock.groupMetadata(chatJid);
                 const participant = groupMetadata.participants.find(p => p.id === senderJid);
-                
+
                 if (participant) {
                     console.log('📋 Participante encontrado:', JSON.stringify(participant, null, 2));
-                    
+
                     if (participant.phoneNumber) {
                         console.log('✅ Número real via phoneNumber:', participant.phoneNumber);
                         return participant.phoneNumber;
                     }
-                    
+
                     if (participant.jid) {
                         console.log('✅ Número real via jid:', participant.jid);
                         return participant.jid;
                     }
-                    
+
                     if (participant.notify) {
                         console.log('✅ Número real via notify:', participant.notify);
                         return participant.notify;
                     }
-                    
+
                     if (participant.phone) {
                         const phoneJid = participant.phone + '@s.whatsapp.net';
                         console.log('✅ Número real via phone:', phoneJid);
@@ -168,33 +170,33 @@ const verificarAdmin = async (sock, message) => {
     try {
         const senderJid = message.key.participant || message.key.remoteJid;
         const chatJid = message.key.remoteJid;
-        
+
         const numeroReal = await resolverNumeroReal(sock, senderJid, chatJid);
-        
+
         console.log('🔍 ========= Verificando Admin (Signos) =========');
         console.log('📥 Remetente JID original:', senderJid);
         console.log('📥 Número real resolvido:', numeroReal);
         console.log('📥 Chat JID:', chatJid);
-        
+
         const numero = extractDigits(numeroReal);
-        
+
         if (!numero) {
             console.warn('⚠️ Não foi possível extrair número válido');
             console.log('=================================================\n');
             return false;
         }
-        
+
         const isAdmin = ADMIN_NUMBERS.some(adminNum => {
             const adminNumero = extractDigits(adminNum);
             console.log(`   🔍 Comparando: ${numero} === ${adminNumero}`);
             return numero === adminNumero;
         });
-        
+
         console.log('🔢 Número extraído:', numero);
         console.log('🔢 Admins configurados:', ADMIN_NUMBERS);
         console.log('🎯 É admin?', isAdmin);
         console.log('=================================================\n');
-        
+
         return isAdmin;
     } catch (err) {
         console.error('❌ Erro em verificarAdmin:', err);
@@ -215,7 +217,7 @@ async function obterParticipantesGrupo(sock, jid) {
 
         const groupMetadata = await sock.groupMetadata(jid);
         const participants = groupMetadata.participants.map(p => p.id);
-        
+
         console.log(`👥 ${participants.length} participantes encontrados no grupo`);
         return participants;
     } catch (error) {
@@ -233,28 +235,28 @@ async function enviarSignosCompletos(sock, jid) {
     if (erro) return erro;
 
     envioEmAndamento = true;
-    
+
     try {
         const listaSignos = Object.values(signos);
-        
+
         if (listaSignos.length === 0) {
             throw new Error('Nenhum signo foi carregado!');
         }
-        
+
         console.log(`📊 Total de signos a enviar: ${listaSignos.length}`);
         console.log(`🔍 Primeiro signo:`, listaSignos[0]);
-        
+
         const mentions = await obterParticipantesGrupo(sock, jid);
-        
+
         console.log(`\n🏷️ ========= POSTER COM MENÇÕES =========`);
         console.log(`📱 Grupo: ${jid}`);
         console.log(`👥 Mencionando: ${mentions.length} pessoas`);
         console.log(`🕒 ${new Date().toLocaleString('pt-BR')}`);
         console.log(`========================================\n`);
-        
+
         // Poster inicial com menções
-        await sock.sendMessage(jid, { 
-            text: formatarCabecalho() + 
+        await sock.sendMessage(jid, {
+            text: formatarCabecalho() +
                   `🔮 *ENVIANDO SIGNOS DO DIA* 🔮\n\n` +
                   `✨ *Aguarde envio...*` +
                   formatarRodape(),
@@ -266,12 +268,12 @@ async function enviarSignosCompletos(sock, jid) {
         // Envia cada signo
         for (let i = 0; i < listaSignos.length; i++) {
             const s = listaSignos[i];
-            
+
             if (!s.nome || !s.simbolo || !s.carta || !s.previsao || !s.conselho) {
                 console.warn(`⚠️ Signo ${i} incompleto, pulando:`, s);
                 continue;
             }
-            
+
             const mensagem = formatarCabecalho() +
                 `${s.simbolo} *${s.nome.toUpperCase()}* ${s.simbolo}\n\n` +
                 `🃏 *Carta do Dia:* ${s.carta}\n\n` +
@@ -280,9 +282,9 @@ async function enviarSignosCompletos(sock, jid) {
                 formatarRodape();
 
             await sock.sendMessage(jid, { text: mensagem });
-            
+
             console.log(`✅ Signo ${i + 1}/${listaSignos.length} enviado: ${s.nome}`);
-            
+
             if (i < listaSignos.length - 1) {
                 await new Promise(resolve => setTimeout(resolve, 2000));
             }
@@ -291,7 +293,7 @@ async function enviarSignosCompletos(sock, jid) {
         await new Promise(resolve => setTimeout(resolve, 2000));
 
         // Mensagem final
-        await sock.sendMessage(jid, { 
+        await sock.sendMessage(jid, {
             text: formatarCabecalho() +
                   `✨ *AS DAMAS COMPLETARAM SUAS REVELAÇÕES* ✨\n\n` +
                   `🔮 _"Os astros falaram, os arcanos se manifestaram..._\n` +
@@ -308,7 +310,7 @@ async function enviarSignosCompletos(sock, jid) {
         envioEmAndamento = false;
         console.log('🎉 Envio de signos concluído com sucesso!');
         return null;
-        
+
     } catch (error) {
         envioEmAndamento = false;
         console.error('❌ Erro no envio de signos:', error);
@@ -323,11 +325,11 @@ async function enviarSignosCompletos(sock, jid) {
 export function obterSigno(nome) {
     const erro = verificarCarregamento();
     if (erro) return { sucesso: false, mensagem: erro };
-    
+
     const key = SIGNOS_MAP[nome.toLowerCase().trim()];
     if (!key || !signos[key]) {
-        return { 
-            sucesso: false, 
+        return {
+            sucesso: false,
             mensagem: formatarCabecalho() +
                      '❌ *SIGNO NÃO ENCONTRADO* ❌\n\n' +
                      '🔮 _As Damas não reconhecem este signo..._\n\n' +
@@ -342,11 +344,11 @@ export function obterSigno(nome) {
     }
 
     const s = signos[key];
-    
+
     if (!s.nome || !s.simbolo || !s.carta || !s.previsao || !s.conselho) {
         return { sucesso: false, mensagem: '❌ Signo incompleto!\n\nTente novamente ou use outro comando.' };
     }
-    
+
     const msg = formatarCabecalho() +
         `${s.simbolo} *${s.nome}* ${s.simbolo}\n\n` +
         `🃏 *Carta do Dia:* ${s.carta}\n\n` +
@@ -363,23 +365,23 @@ export function obterSigno(nome) {
 
 export async function handleSignos(sock, message) {
     try {
-        const texto = message.message?.conversation || 
-                     message.message?.extendedTextMessage?.text || 
+        const texto = message.message?.conversation ||
+                     message.message?.extendedTextMessage?.text ||
                      message.message?.imageMessage?.caption || '';
-        
+
         if (!texto) return false;
 
         const cmd = texto.toLowerCase().trim();
         const jid = message.key.remoteJid;
-        
+
         // ============================================
         // 1️⃣ COMANDO: #damastaro (Admin - Envio Completo)
         // ============================================
         if (cmd === '#damastaro') {
             const isAdmin = await verificarAdmin(sock, message);
-            
+
             if (!isAdmin) {
-                await sock.sendMessage(jid, { 
+                await sock.sendMessage(jid, {
                     text: formatarCabecalho() +
                           '⛔ *ACESSO NEGADO* ⛔\n\n' +
                           '🔮 *As Damas da Night protegem seus segredos...*\n\n' +
@@ -394,7 +396,7 @@ export async function handleSignos(sock, message) {
                 }, { quoted: message });
                 return true;
             }
-            
+
             // Deleta o comando
             console.log('🗑️ Tentando deletar comando #damastaro...');
             try {
@@ -403,9 +405,9 @@ export async function handleSignos(sock, message) {
             } catch (error) {
                 console.error('❌ Erro ao deletar mensagem:', error);
             }
-            
+
             await new Promise(resolve => setTimeout(resolve, 1000));
-            
+
             const resultado = await enviarSignosCompletos(sock, jid);
             if (resultado) {
                 await sock.sendMessage(jid, { text: resultado });
@@ -418,9 +420,9 @@ export async function handleSignos(sock, message) {
         // ============================================
         if (cmd === '#atualizarsignos') {
             const isAdmin = await verificarAdmin(sock, message);
-            
+
             if (!isAdmin) {
-                await sock.sendMessage(jid, { 
+                await sock.sendMessage(jid, {
                     text: formatarCabecalho() +
                           '⛔ *ACESSO NEGADO* ⛔\n\n' +
                           '🔮 *As Damas da Night protegem seus segredos...*\n\n' +
@@ -435,11 +437,11 @@ export async function handleSignos(sock, message) {
                 }, { quoted: message });
                 return true;
             }
-            
+
             await sock.sendMessage(jid, { text: '🔄 Atualizando signos...' }, { quoted: message });
             try {
                 await carregarSignos();
-                await sock.sendMessage(jid, { 
+                await sock.sendMessage(jid, {
                     text: formatarCabecalho() +
                           `✅ *SIGNOS ATUALIZADOS!* ✅\n\n` +
                           `📊 Total: ${Object.keys(signos).length} signos\n` +
