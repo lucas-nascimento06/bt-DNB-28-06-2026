@@ -25,6 +25,7 @@ import { responderNaturalmente, ativarIA, pausarIA, isIAAtiva } from '../../util
 import { handleSalvaContato, handleListarContatos } from '../command/contatoHandler.js';
 import { enviarMayaSticker } from '../../utils/mayaStickerSender.js';
 import { handleTraduzMusica } from '../musica/traduzMusicaHandler.js';
+import { handleLetra } from '../musica/extrairLetraHandler.js';
 import { perfilHandler, atualizarPerfilHandler } from '../command/perfilHandler.js';
 import {
   handleBomDia,
@@ -325,6 +326,15 @@ export async function handleMessages(sock, message) {
       if (DEBUG_MODE) console.log('🌍 Comando #traduz detectado!');
       const traduzHandled = await handleTraduzMusica(sock, message, content, from);
       if (traduzHandled) return;
+    }
+
+    // ============================================
+    // 🎵 LETRA DA MÚSICA — #letra
+    // ============================================
+    if (lowerContent === '#letra') {
+     if (DEBUG_MODE) console.log('🎵 Comando #letra detectado!');
+     const letraHandled = await handleLetra(sock, message, content, from);
+     if (letraHandled) return;
     }
 
 

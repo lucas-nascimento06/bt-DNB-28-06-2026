@@ -1,4 +1,4 @@
-// 🌍 TRADUTOR DE MÚSICA — transcreve o áudio citado e traduz a letra
+// 🎵 EXTRATOR DE LETRA — transcreve o áudio citado e mostra a letra
 import axios from 'axios';
 import FormData from 'form-data';
 import { downloadMediaMessage } from '@whiskeysockets/baileys';
@@ -10,13 +10,13 @@ const CHAT_URL          = 'https://api.mistral.ai/v1/chat/completions';
 
 const RODAPE = `©𝘋𝘢𝘮𝘢𝘴 𝘥𝘢 𝘕𝘪𝘨𝘩𝘵`;
 const TITULO = `👏🍻 *DﾑMﾑS* 💃🔥 *Dﾑ* *NIGӇԵ* 💃🎶🍾🍸`;
-const BANNER_URL = 'https://i.ibb.co/Tx330HzG/tradu-ao-musicas.png';
+const BANNER_URL = 'https://i.ibb.co/JRNRP1Qd/letras-810k.png';
 
 // ⏱️ LIMITE MÁXIMO DE DURAÇÃO (em segundos)
 const DURACAO_MAXIMA_SEGUNDOS = 7 * 60; // 7 minutos
 
 // ============================================
-// ✅ RESOLVER SENDER REAL (evita @lid e JID de grupo) — igual dedicatoriaHandler
+// ✅ RESOLVER SENDER REAL
 // ============================================
 function resolverSenderId(message) {
     const key = message.key;
@@ -30,7 +30,7 @@ function resolverSenderId(message) {
 }
 
 // ============================================
-// 🖼️ GERA THUMBNAIL (igual dedicatoriaHandler)
+// 🖼️ GERA THUMBNAIL
 // ============================================
 async function gerarThumbnail(buffer, size = 256) {
     try {
@@ -44,7 +44,7 @@ async function gerarThumbnail(buffer, size = 256) {
 }
 
 // ============================================
-// 🖼️ BAIXA O BANNER MANUALMENTE (evita falha do fetch interno do Baileys)
+// 🖼️ BAIXA O BANNER
 // ============================================
 async function baixarBanner() {
     try {
@@ -67,7 +67,7 @@ async function baixarBanner() {
 }
 
 // ============================================
-// 🎙️ TRANSCREVE O ÁUDIO (Voxtral)
+// 🎙️ TRANSCREVE O ÁUDIO
 // ============================================
 async function transcreverAudio(buffer) {
     const form = new FormData();
@@ -87,33 +87,45 @@ async function transcreverAudio(buffer) {
 }
 
 // ============================================
-// 🌍 TRADUZ O TEXTO TRANSCRITO
+// 📝 FORMATA A LETRA EM VERSOS/ESTROFES
 // ============================================
-async function traduzirTexto(texto) {
-    const { data } = await axios.post(
-        CHAT_URL,
-        {
-            model: 'mistral-small-latest',
-            messages: [
-                {
-                    role: 'system',
-                    content:
-                        'Você é um tradutor. Traduza o texto do usuário (letra de música) para português do Brasil, mantendo o sentido e, quando possível, o tom poético. Responda APENAS com a tradução, sem comentários nem explicações.',
-                },
-                { role: 'user', content: texto },
-            ],
-            max_tokens: 1000,
-            temperature: 0.3,
-        },
-        {
-            headers: {
-                'Content-Type': 'application/json',
-                Authorization: `Bearer ${MISTRAL_API_KEY}`,
+async function formatarLetra(textoBruto) {
+    try {
+        const { data } = await axios.post(
+            CHAT_URL,
+            {
+                model: 'mistral-small-latest',
+                messages: [
+                    {
+                        role: 'system',
+                        content:
+                            'Você recebe a transcrição bruta de uma letra de música, sem quebras de linha. ' +
+                            'Sua única tarefa é reorganizar o MESMO texto em versos e estrofes (separadas por linha em branco), ' +
+                            'como normalmente aparece em letras de música. ' +
+                            'NÃO corrija, reescreva, resuma, traduza ou adicione palavras. ' +
+                            'NÃO adicione títulos, comentários ou explicações. ' +
+                            'Responda APENAS com a letra formatada.',
+                    },
+                    { role: 'user', content: textoBruto },
+                ],
+                max_tokens: 1000,
+                temperature: 0,
             },
-        }
-    );
+            {
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${MISTRAL_API_KEY}`,
+                },
+                timeout: 20000,
+            }
+        );
 
-    return data.choices?.[0]?.message?.content?.trim() || null;
+        const formatado = data?.choices?.[0]?.message?.content?.trim();
+        return formatado || textoBruto;
+    } catch (err) {
+        console.error('⚠️ Erro ao formatar letra, usando texto bruto:', err.message);
+        return textoBruto; // fallback: se der erro, manda o texto corrido mesmo
+    }
 }
 
 // ============================================
@@ -126,21 +138,19 @@ function formatarDuracao(segundos) {
 }
 
 // ============================================
-// 🎯 ENTRADA PRINCIPAL — #traduz
+// 🎯 ENTRADA PRINCIPAL — #letra
 // ============================================
-export async function handleTraduzMusica(sock, message, content, from) {
+export async function handleLetra(sock, message, content, from) {
     const lower = content.toLowerCase().trim();
-    if (lower !== '#traduz') return false;
+    if (lower !== '#letra') return false;
 
     const quotedInfo    = message.message?.extendedTextMessage?.contextInfo;
     const quotedMessage = quotedInfo?.quotedMessage;
     const audioMsg      = quotedMessage?.audioMessage;
 
-    // ✅ Quem pediu a tradução (para marcar/mencionar, igual dedicatoriaHandler)
     const senderId = resolverSenderId(message);
     const nomeQuemPediu = `@${senderId.split('@')[0]}`;
 
-    // ✅ contexto de reply (mesmo padrão do dedicatoriaHandler)
     const replyContext = {
         stanzaId: message.key.id,
         participant: message.key.participant || message.key.remoteJid,
@@ -149,14 +159,13 @@ export async function handleTraduzMusica(sock, message, content, from) {
 
     if (!audioMsg) {
         await sock.sendMessage(from, {
-            text: `${nomeQuemPediu}\n\n⚠️ Dê *reply* em um áudio de música e mande *#traduz*.\n\n${RODAPE}`,
+            text: `${nomeQuemPediu}\n\n⚠️ Dê *reply* em um áudio de música e mande *#letra*.\n\n${RODAPE}`,
             mentions: [senderId],
             quoted: message
         });
         return true;
     }
 
-    // ⏱️ CHECA DURAÇÃO ANTES DE BAIXAR (economiza processamento)
     const duracaoSegundos = audioMsg.seconds || 0;
 
     if (duracaoSegundos > DURACAO_MAXIMA_SEGUNDOS) {
@@ -171,17 +180,14 @@ export async function handleTraduzMusica(sock, message, content, from) {
     }
 
     try {
-        // ── 1. POSTER (BANNER) MENCIONANDO A PESSOA ──────────────────────────
-        // ✅ baixa manualmente via axios (buffer), evita falha do fetch interno
-        // do Baileys, e agora marca (@) quem pediu, igual dedicatoriaHandler.
+        // ── 1. POSTER (BANNER) ──────────────────────────
         const bannerBuffer = await baixarBanner();
 
         const captionAviso =
-            `🅟🅡🅔🅟🅐🅡🅐🅝🅓🅞 🅢🅤🅐 🅣🅡🅐🅓🅤🅒🅐🅞!\n\n` +
-            `👤 ${nomeQuemPediu} solicitou a tradução de uma música.\n` +
+            `🅟🅡🅔🅟🅐🅡🅐🅝🅓🅞 🅢🅤🅐 🅛🅔🅣🅡🅐!\n\n` +
+            `👤 ${nomeQuemPediu} solicitou a letra da música.\n` +
             `🎼 Analisando o áudio...\n` +
-            `📝 Transcrevendo a letra...\n` +
-            `🌐 Traduzindo com precisão...\n\n` +
+            `📝 Transcrevendo a letra...\n\n` +
             `⏳ Aguarde, o resultado será enviado em instantes.`;
 
         if (bannerBuffer) {
@@ -195,7 +201,7 @@ export async function handleTraduzMusica(sock, message, content, from) {
                     contextInfo: replyContext
                 });
             } catch (e) {
-                console.warn('⚠️ Falha ao enviar poster, enviando texto:', e.message);
+                console.warn('⚠️ Falha ao enviar poster:', e.message);
                 await sock.sendMessage(from, {
                     text: captionAviso,
                     mentions: [senderId],
@@ -203,8 +209,6 @@ export async function handleTraduzMusica(sock, message, content, from) {
                 });
             }
         } else {
-            // ✅ Fallback: se o banner falhar, manda o aviso em texto mesmo assim
-            console.warn('⚠️ [#traduz] Banner indisponível, enviando aviso em texto.');
             await sock.sendMessage(from, {
                 text: captionAviso,
                 mentions: [senderId],
@@ -212,7 +216,7 @@ export async function handleTraduzMusica(sock, message, content, from) {
             });
         }
 
-        // Monta uma "mensagem falsa" pro Baileys conseguir baixar a mídia citada
+        // ── 2. BAIXA ÁUDIO ──────────────────────────────
         const fakeMessage = {
             key: {
                 remoteJid: from,
@@ -233,9 +237,9 @@ export async function handleTraduzMusica(sock, message, content, from) {
             throw new Error('Buffer de áudio vazio');
         }
 
-        const letraOriginal = await transcreverAudio(buffer);
+        const letraBruta = await transcreverAudio(buffer);
 
-        if (!letraOriginal) {
+        if (!letraBruta) {
             await sock.sendMessage(from, {
                 text: `${nomeQuemPediu}\n\n❌ Não consegui transcrever esse áudio.\n\n${RODAPE}`,
                 mentions: [senderId],
@@ -244,34 +248,26 @@ export async function handleTraduzMusica(sock, message, content, from) {
             return true;
         }
 
-        const traducao = await traduzirTexto(letraOriginal);
+        // ── 2.1 FORMATA A LETRA EM VERSOS/ESTROFES ──────
+        const letra = await formatarLetra(letraBruta);
 
-        if (!traducao) {
-            await sock.sendMessage(from, {
-                text: `${nomeQuemPediu}\n\n❌ Não consegui traduzir a letra.\n\n${RODAPE}`,
-                mentions: [senderId],
-                quoted: message
-            });
-            return true;
-        }
-
-        // ── 2. LETRA TRADUZIDA (mensagem final, marcando quem pediu) ─────────
+        // ── 3. ENVIA A LETRA ─────────────────────────────
         await new Promise(r => setTimeout(r, 800));
         await sock.sendMessage(from, {
             text:
                 `${TITULO}\n` +
                 `#musicaboa 🔥 Não tem idade, tem atitude 💃 #damasdanight #amizade #liberdade #diversao #atitude\n\n` +
-                `🎼📚 𝐓𝐑𝐀𝐃𝐔𝐂𝐀𝐎 𝐏𝐄𝐃𝐈𝐃𝐀 𝐏𝐎𝐑 ${nomeQuemPediu} 🎼📚\n\n` +
-                `${traducao}\n\n` +
+                `🎼📖 𝐋𝐄𝐓𝐑𝐀 𝐏𝐄𝐃𝐈𝐃𝐀 𝐏𝐎𝐑 ${nomeQuemPediu} 🎼📖\n\n` +
+                `${letra}\n\n` +
                 `_🍋🧂🥃 Se a vida te der limão, pede sal e tequila e se joga! 🎉_\n\n` +
                 `${RODAPE}`,
             mentions: [senderId]
         });
 
     } catch (err) {
-        console.error('❌ [#traduz] Erro:', err.message);
+        console.error('❌ [#letra] Erro:', err.message);
         await sock.sendMessage(from, {
-            text: `${nomeQuemPediu}\n\n❌ Erro ao processar a tradução da música. Tente novamente.\n\n${RODAPE}`,
+            text: `${nomeQuemPediu}\n\n❌ Erro ao processar a letra da música. Tente novamente.\n\n${RODAPE}`,
             mentions: [senderId],
             quoted: message
         });
