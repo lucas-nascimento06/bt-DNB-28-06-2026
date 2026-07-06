@@ -3,6 +3,11 @@ import axios from 'axios';
 import FormData from 'form-data';
 import { downloadMediaMessage } from '@whiskeysockets/baileys';
 import { Jimp } from 'jimp';
+import { spawn } from 'child_process';
+import { promises as fs } from 'fs';
+import os from 'os';
+import path from 'path';
+import { randomUUID } from 'crypto';
 
 const MISTRAL_API_KEY   = process.env.MISTRAL_API_KEY;
 const TRANSCRIPTION_URL = 'https://api.mistral.ai/v1/audio/transcriptions';
@@ -14,6 +19,9 @@ const BANNER_URL = 'https://i.ibb.co/JRNRP1Qd/letras-810k.png';
 
 // ⏱️ LIMITE MÁXIMO DE DURAÇÃO (em segundos)
 const DURACAO_MAXIMA_SEGUNDOS = 7 * 60; // 7 minutos
+
+// 🌍 Idioma padrão para a transcrição (ajuda o ASR, evita ele "adivinhar" errado)
+const IDIOMA_TRANSCRICAO = 'pt'; // código ISO-639-1
 
 // ============================================
 // ✅ RESOLVER SENDER REAL
@@ -67,12 +75,82 @@ async function baixarBanner() {
 }
 
 // ============================================
+// 🔧 CONVERTE O ÁUDIO PARA MP3 REAL (via ffmpeg)
+// ============================================
+// O áudio de voz/mensagem do WhatsApp normalmente vem em OGG/Opus.
+// Antes ele era enviado direto pro Mistral com o nome "audio.mp3" sem
+// nenhuma conversão real — o que pode causar erro de decodificação e
+// piorar (e muito) a qualidade da transcrição.
+async function converterParaMp3(bufferEntrada) {
+    const tmpDir = os.tmpdir();
+    const id = randomUUID();
+    const entradaPath = path.join(tmpDir, `${id}-in.ogg`);
+    const saidaPath   = path.join(tmpDir, `${id}-out.mp3`);
+
+    try {
+        await fs.writeFile(entradaPath, bufferEntrada);
+
+        await new Promise((resolve, reject) => {
+            const ffmpeg = spawn('ffmpeg', [
+                '-y',                 // sobrescreve se existir
+                '-i', entradaPath,    // entrada
+                '-ar', '16000',       // 16kHz é suficiente e ideal pra ASR
+                '-ac', '1',           // mono
+                '-b:a', '128k',       // bitrate razoável
+                '-f', 'mp3',
+                saidaPath
+            ]);
+
+            let stderr = '';
+            ffmpeg.stderr.on('data', (d) => { stderr += d.toString(); });
+
+            ffmpeg.on('error', (err) => {
+                reject(new Error(`ffmpeg não encontrado ou falhou ao iniciar: ${err.message}`));
+            });
+
+            ffmpeg.on('close', (code) => {
+                if (code === 0) {
+                    resolve();
+                } else {
+                    reject(new Error(`ffmpeg saiu com código ${code}: ${stderr.slice(-500)}`));
+                }
+            });
+        });
+
+        const bufferSaida = await fs.readFile(saidaPath);
+        return bufferSaida;
+
+    } finally {
+        // limpeza dos temporários, não deixa lixo acumulando
+        await fs.unlink(entradaPath).catch(() => {});
+        await fs.unlink(saidaPath).catch(() => {});
+    }
+}
+
+// ============================================
 // 🎙️ TRANSCREVE O ÁUDIO
 // ============================================
-async function transcreverAudio(buffer) {
+async function transcreverAudio(bufferOriginal) {
+    // Converte pra um MP3 real antes de mandar — corrige o principal
+    // motivo de transcrições erradas (formato incompatível/mal identificado).
+    let bufferParaEnviar;
+    let nomeArquivo;
+
+    try {
+        bufferParaEnviar = await converterParaMp3(bufferOriginal);
+        nomeArquivo = 'audio.mp3';
+    } catch (err) {
+        console.warn('⚠️ Falha ao converter áudio com ffmpeg, enviando original:', err.message);
+        // fallback: manda o buffer original, mas com extensão .ogg (mais honesto
+        // que forçar .mp3 em cima de um arquivo que não é mp3)
+        bufferParaEnviar = bufferOriginal;
+        nomeArquivo = 'audio.ogg';
+    }
+
     const form = new FormData();
-    form.append('file', buffer, { filename: 'audio.mp3' });
+    form.append('file', bufferParaEnviar, { filename: nomeArquivo });
     form.append('model', 'voxtral-mini-latest');
+    form.append('language', IDIOMA_TRANSCRICAO);
 
     const { data } = await axios.post(TRANSCRIPTION_URL, form, {
         headers: {
@@ -81,6 +159,7 @@ async function transcreverAudio(buffer) {
         },
         maxBodyLength: Infinity,
         maxContentLength: Infinity,
+        timeout: 60000,
     });
 
     return data?.text?.trim() || null;

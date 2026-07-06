@@ -3,6 +3,11 @@ import axios from 'axios';
 import FormData from 'form-data';
 import { downloadMediaMessage } from '@whiskeysockets/baileys';
 import { Jimp } from 'jimp';
+import { spawn } from 'child_process';
+import { promises as fs } from 'fs';
+import os from 'os';
+import path from 'path';
+import { randomUUID } from 'crypto';
 
 const MISTRAL_API_KEY   = process.env.MISTRAL_API_KEY;
 const TRANSCRIPTION_URL = 'https://api.mistral.ai/v1/audio/transcriptions';
@@ -14,6 +19,9 @@ const BANNER_URL = 'https://i.ibb.co/Tx330HzG/tradu-ao-musicas.png';
 
 // ⏱️ LIMITE MÁXIMO DE DURAÇÃO (em segundos)
 const DURACAO_MAXIMA_SEGUNDOS = 7 * 60; // 7 minutos
+
+// 🌍 Idioma alvo da tradução
+const IDIOMA_ALVO = 'português do Brasil';
 
 // ============================================
 // ✅ RESOLVER SENDER REAL (evita @lid e JID de grupo) — igual dedicatoriaHandler
@@ -67,11 +75,79 @@ async function baixarBanner() {
 }
 
 // ============================================
+// 🔧 CONVERTE O ÁUDIO PARA MP3 REAL (via ffmpeg)
+// ============================================
+// O áudio de voz/mensagem do WhatsApp normalmente vem em OGG/Opus.
+// Antes ele era enviado direto pro Mistral com o nome "audio.mp3" sem
+// nenhuma conversão real — o que pode causar erro de decodificação,
+// cortes/perdas no meio do áudio e piorar (e muito) a transcrição —
+// e por consequência a tradução, que parte desse texto.
+async function converterParaMp3(bufferEntrada) {
+    const tmpDir = os.tmpdir();
+    const id = randomUUID();
+    const entradaPath = path.join(tmpDir, `${id}-in.ogg`);
+    const saidaPath   = path.join(tmpDir, `${id}-out.mp3`);
+
+    try {
+        await fs.writeFile(entradaPath, bufferEntrada);
+
+        await new Promise((resolve, reject) => {
+            const ffmpeg = spawn('ffmpeg', [
+                '-y',                 // sobrescreve se existir
+                '-i', entradaPath,    // entrada
+                '-ar', '16000',       // 16kHz é suficiente e ideal pra ASR
+                '-ac', '1',           // mono
+                '-b:a', '128k',       // bitrate razoável
+                '-f', 'mp3',
+                saidaPath
+            ]);
+
+            let stderr = '';
+            ffmpeg.stderr.on('data', (d) => { stderr += d.toString(); });
+
+            ffmpeg.on('error', (err) => {
+                reject(new Error(`ffmpeg não encontrado ou falhou ao iniciar: ${err.message}`));
+            });
+
+            ffmpeg.on('close', (code) => {
+                if (code === 0) {
+                    resolve();
+                } else {
+                    reject(new Error(`ffmpeg saiu com código ${code}: ${stderr.slice(-500)}`));
+                }
+            });
+        });
+
+        const bufferSaida = await fs.readFile(saidaPath);
+        return bufferSaida;
+
+    } finally {
+        // limpeza dos temporários, não deixa lixo acumulando
+        await fs.unlink(entradaPath).catch(() => {});
+        await fs.unlink(saidaPath).catch(() => {});
+    }
+}
+
+// ============================================
 // 🎙️ TRANSCREVE O ÁUDIO (Voxtral)
 // ============================================
-async function transcreverAudio(buffer) {
+async function transcreverAudio(bufferOriginal) {
+    // Converte pra um MP3 real antes de mandar — corrige o principal
+    // motivo de transcrições incompletas/erradas (formato incompatível).
+    let bufferParaEnviar;
+    let nomeArquivo;
+
+    try {
+        bufferParaEnviar = await converterParaMp3(bufferOriginal);
+        nomeArquivo = 'audio.mp3';
+    } catch (err) {
+        console.warn('⚠️ Falha ao converter áudio com ffmpeg, enviando original:', err.message);
+        bufferParaEnviar = bufferOriginal;
+        nomeArquivo = 'audio.ogg';
+    }
+
     const form = new FormData();
-    form.append('file', buffer, { filename: 'audio.mp3' });
+    form.append('file', bufferParaEnviar, { filename: nomeArquivo });
     form.append('model', 'voxtral-mini-latest');
 
     const { data } = await axios.post(TRANSCRIPTION_URL, form, {
@@ -81,6 +157,7 @@ async function transcreverAudio(buffer) {
         },
         maxBodyLength: Infinity,
         maxContentLength: Infinity,
+        timeout: 60000,
     });
 
     return data?.text?.trim() || null;
@@ -90,30 +167,51 @@ async function transcreverAudio(buffer) {
 // 🌍 TRADUZ O TEXTO TRANSCRITO
 // ============================================
 async function traduzirTexto(texto) {
-    const { data } = await axios.post(
-        CHAT_URL,
-        {
-            model: 'mistral-small-latest',
-            messages: [
-                {
-                    role: 'system',
-                    content:
-                        'Você é um tradutor. Traduza o texto do usuário (letra de música) para português do Brasil, mantendo o sentido e, quando possível, o tom poético. Responda APENAS com a tradução, sem comentários nem explicações.',
-                },
-                { role: 'user', content: texto },
-            ],
-            max_tokens: 1000,
-            temperature: 0.3,
-        },
-        {
-            headers: {
-                'Content-Type': 'application/json',
-                Authorization: `Bearer ${MISTRAL_API_KEY}`,
+    try {
+        const { data } = await axios.post(
+            CHAT_URL,
+            {
+                model: 'mistral-small-latest',
+                messages: [
+                    {
+                        role: 'system',
+                        content:
+                            `Você é um tradutor. Traduza o texto do usuário (letra de música) INTEGRALMENTE para ${IDIOMA_ALVO}, ` +
+                            'mantendo o sentido e, quando possível, o tom poético. ' +
+                            'Traduza TODAS as estrofes, do início ao fim, sem pular ou resumir nenhuma parte. ' +
+                            'Responda APENAS com a tradução completa, sem comentários nem explicações.',
+                    },
+                    { role: 'user', content: texto },
+                ],
+                // ⬆️ Antes era 1000 — cortava traduções de músicas mais longas
+                // no meio do texto. Aumentado com folga pra letras longas.
+                max_tokens: 4000,
+                temperature: 0.3,
             },
-        }
-    );
+            {
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${MISTRAL_API_KEY}`,
+                },
+                timeout: 30000,
+            }
+        );
 
-    return data.choices?.[0]?.message?.content?.trim() || null;
+        const choice = data.choices?.[0];
+        let traducao = choice?.message?.content?.trim() || null;
+
+        // Se o modelo ainda assim cortou por atingir o limite de tokens,
+        // loga um aviso pra facilitar diagnóstico (em vez de mandar cortado
+        // sem ninguém perceber o motivo).
+        if (choice?.finish_reason === 'length') {
+            console.warn('⚠️ Tradução pode ter sido cortada por limite de tokens (finish_reason=length).');
+        }
+
+        return traducao;
+    } catch (err) {
+        console.error('❌ Erro ao traduzir texto:', err.message);
+        return null;
+    }
 }
 
 // ============================================
@@ -172,8 +270,6 @@ export async function handleTraduzMusica(sock, message, content, from) {
 
     try {
         // ── 1. POSTER (BANNER) MENCIONANDO A PESSOA ──────────────────────────
-        // ✅ baixa manualmente via axios (buffer), evita falha do fetch interno
-        // do Baileys, e agora marca (@) quem pediu, igual dedicatoriaHandler.
         const bannerBuffer = await baixarBanner();
 
         const captionAviso =
@@ -203,7 +299,6 @@ export async function handleTraduzMusica(sock, message, content, from) {
                 });
             }
         } else {
-            // ✅ Fallback: se o banner falhar, manda o aviso em texto mesmo assim
             console.warn('⚠️ [#traduz] Banner indisponível, enviando aviso em texto.');
             await sock.sendMessage(from, {
                 text: captionAviso,
