@@ -3,16 +3,102 @@ import fs from 'fs';
 import path from 'path';
 import axios from 'axios';
 import { Jimp } from 'jimp';
+import translate from 'google-translate-api-x';
+import { buscarLetra } from './extrairLetraHandler.js';
 import { baixarMusicaBuffer, obterDadosMusica, buscarUrlPorNome } from './download.util.js';
 
 let processandoMusica = false;
 const filaMusicas = [];
+
+// ============================================
+// 🎨 CONSTANTES DE IDENTIDADE VISUAL DA LETRA
+// ============================================
+const RODAPE = `©𝘋𝘢𝘮𝘢𝘴 𝘥𝘢 𝘕𝘪𝘨𝘩𝘵`;
+const TITULO = `👏🍻 *DﾑMﾑS* 💃🔥 *Dﾑ* *NIGӇԵ* 💃🎶🍾🍸`;
+const BANNER_URL = 'https://i.ibb.co/p6TmfFFs/music.png';
+
+// ============================================
+// 🌐 TRADUÇÃO DA LETRA (via google-translate-api-x)
+// ============================================
+// Anteriormente usava a API da Mistral (paga). Trocado para
+// google-translate-api-x, que usa o motor do Google Tradutor de forma
+// gratuita. Se falhar (bloqueio, timeout, etc), mantém a letra original
+// no idioma em que veio (ex: inglês) em vez de travar o fluxo.
+const IDIOMA_ALVO = 'pt';
+
+// ============================================
+// 🕵️ DETECTA SE O TEXTO JÁ ESTÁ EM PORTUGUÊS
+// (heurística simples baseada em palavras comuns do PT-BR;
+// evita gastar uma chamada de tradução pra letras que já estão em PT)
+// ============================================
+function pareceJaEmPortugues(texto) {
+    const amostra = texto.toLowerCase();
+    const marcadoresPt = [
+        ' que ', ' não ', ' você ', ' para ', ' com ', ' uma ', ' está ',
+        ' eu ', ' meu ', ' minha ', ' você', ' ção', ' são ', ' já '
+    ];
+    let acertos = 0;
+    for (const marcador of marcadoresPt) {
+        if (amostra.includes(marcador)) acertos++;
+    }
+    // Se encontrar vários marcadores típicos de PT, assume que já está em português
+    return acertos >= 3;
+}
+
+async function traduzirLetraViaGoogle(texto) {
+    try {
+        const res = await translate(texto, { to: IDIOMA_ALVO });
+        const traducao = res?.text?.trim() || null;
+        return traducao;
+    } catch (err) {
+        console.error('❌ Erro ao traduzir letra via Google:', err.message);
+        return null;
+    }
+}
+
+// ============================================
+// 🌐 TRADUZ A LETRA PARA PT-BR SE NÃO ESTIVER EM PORTUGUÊS
+// ============================================
+async function traduzirLetraSeIngles(letra) {
+    try {
+        if (pareceJaEmPortugues(letra)) {
+            console.log('🌐 Letra já parece estar em português, não vou traduzir.');
+            return { texto: letra, traduzida: false };
+        }
+
+        console.log('🌐 Letra não parece estar em português, tentando traduzir...');
+        const traducao = await traduzirLetraViaGoogle(letra);
+
+        if (traducao && traducao.trim() !== letra.trim()) {
+            console.log('🌐 Letra traduzida com sucesso.');
+            return { texto: traducao, traduzida: true };
+        }
+
+        console.warn('⚠️ Tradução falhou ou voltou igual ao original, mantendo letra original (idioma original).');
+        return { texto: letra, traduzida: false };
+    } catch (err) {
+        console.error('❌ Erro ao traduzir letra:', err.message);
+        // Se a tradução falhar, mantém a letra original pra não perder o conteúdo
+        return { texto: letra, traduzida: false };
+    }
+}
 
 function limparNomeArquivo(nome) {
     return nome
         .replace(/[<>:"/\\|?*]/g, '')
         .replace(/\s+/g, '_')
         .substring(0, 100);
+}
+
+// ============================================
+// 🧹 REMOVE SUFIXO "- Topic" DO NOME DO ARTISTA
+// (vem de canais auto-gerados do YouTube, ex: "Leandro & Leonardo - Topic")
+// ============================================
+function limparNomeArtista(nome) {
+    if (!nome) return nome;
+    return nome
+        .replace(/\s*-\s*Topic\s*$/i, '')
+        .trim();
 }
 
 async function gerarThumbnail(buffer, size = 256) {
@@ -132,6 +218,28 @@ async function baixarImagemPoster() {
     }
 }
 
+// ============================================
+// 🖼️ BAIXA O BANNER USADO NA LETRA
+// ============================================
+async function baixarBannerLetra() {
+    try {
+        console.log('🖼️ Baixando banner da letra...');
+        const response = await axios.get(BANNER_URL, {
+            responseType: 'arraybuffer',
+            timeout: 10000,
+            headers: { 'User-Agent': 'Mozilla/5.0', 'Accept': 'image/*' },
+            maxRedirects: 5
+        });
+        const buffer = Buffer.from(response.data, 'binary');
+        console.log(`✅ Banner da letra baixado: ${buffer.length} bytes`);
+        if (buffer.length < 1000) return null;
+        return buffer;
+    } catch (error) {
+        console.error('❌ Erro ao baixar banner da letra:', error.message);
+        return null;
+    }
+}
+
 async function sendMediaWithThumbnail(sock, jid, buffer, caption, mentions = []) {
     try {
         const thumb = await gerarThumbnail(buffer, 256);
@@ -167,6 +275,8 @@ async function processarFila() {
 
 async function baixarEEnviarMusica(sock, from, termo, senderId, messageKey, originalMessage) {
     const caminhoCompleto = path.join('./downloads', `temp_${Date.now()}.mp3`);
+    let dados = null;
+    let url = null;
 
     try {
         // ── 1. POSTER INICIAL ────────────────────────────────────────────────
@@ -194,13 +304,63 @@ async function baixarEEnviarMusica(sock, from, termo, senderId, messageKey, orig
 
         // ── 2. BUSCA DADOS DA MÚSICA ─────────────────────────────────────────
         console.log(`🔍 Buscando: ${termo}`);
-        const url = await buscarUrlPorNome(termo);
+        url = await buscarUrlPorNome(termo);
 
         console.log(`📊 Obtendo dados da música...`);
-        const dados = await obterDadosMusica(url);
+        dados = await obterDadosMusica(url);
+
+        // 🧹 Remove sufixo "- Topic" (canais auto-gerados do YouTube)
+        dados.autor = limparNomeArtista(dados.autor);
+        dados.titulo = limparNomeArtista(dados.titulo);
+
         console.log(`📄 Dados obtidos: ${dados.titulo} - ${dados.autor}`);
 
-        // ── 3. THUMBNAIL + INFO ──────────────────────────────────────────────
+        // ── 3. BUSCA E ENVIA A LETRA (ANTES DO ÁUDIO) ────────────────────────
+        // Agora letra + banner vão numa ÚNICA mensagem: imagem com a letra na legenda.
+        try {
+            console.log(`📖 Buscando letra: ${dados.titulo} - ${dados.autor}`);
+            const letra = await buscarLetra(dados.autor, dados.titulo);
+
+            if (letra) {
+                const { texto: letraFinal, traduzida } = await traduzirLetraSeIngles(letra);
+
+                const legendaLetra =
+                    `${TITULO}\n` +
+                    `#musicaboa 🔥 Não tem idade, tem atitude 💃 #damasdanight #amizade #liberdade #diversao #atitude\n\n` +
+                    `@${senderId.split('@')[0]}\n\n` +
+                    `🎼📖 *${dados.titulo} - ${dados.autor}*\n\n` +
+                    `${letraFinal}\n\n` +
+                    `_🍋🧂🥃 Se a vida te der limão, pede sal e tequila e se joga! 🎉_\n\n` +
+                    `${RODAPE}`;
+
+                const bannerBuffer = await baixarBannerLetra();
+
+                if (bannerBuffer) {
+                    // Tenta mandar tudo junto: imagem do banner + letra na legenda
+                    const enviouJunto = await sendMediaWithThumbnail(
+                        sock, from, bannerBuffer, legendaLetra, [senderId]
+                    );
+                    if (enviouJunto) {
+                        console.log(`✅ Letra + banner enviados juntos!`);
+                    } else {
+                        // Fallback: se falhar mandar como imagem (ex: legenda grande demais
+                        // ou WhatsApp rejeitando payload), manda só o texto da letra.
+                        console.warn('⚠️ Falha ao enviar letra+banner juntos, caindo para texto puro.');
+                        await sock.sendMessage(from, { text: legendaLetra, mentions: [senderId] });
+                    }
+                } else {
+                    // Sem banner disponível, manda só o texto da letra.
+                    console.warn('⚠️ Banner da letra indisponível, enviando apenas texto.');
+                    await sock.sendMessage(from, { text: legendaLetra, mentions: [senderId] });
+                }
+            } else {
+                console.log(`⚠️ Letra não encontrada para: ${dados.titulo} - ${dados.autor}`);
+            }
+        } catch (letraErr) {
+            console.error('❌ Erro ao buscar/enviar letra:', letraErr.message);
+        }
+
+        // ── 4. THUMBNAIL + INFO ──────────────────────────────────────────────
         let thumbnailEnviada = false;
         if (dados.thumbnailUrl) {
             console.log(`🖼️ Processando thumbnail...`);
@@ -258,7 +418,7 @@ async function baixarEEnviarMusica(sock, from, termo, senderId, messageKey, orig
             });
         }
 
-        // ── 4. DOWNLOAD E ENVIO DO ÁUDIO ─────────────────────────────────────
+        // ── 5. DOWNLOAD E ENVIO DO ÁUDIO ─────────────────────────────────────
         console.log(`⬇️ Baixando áudio: ${dados.titulo} - ${dados.autor}`);
         const result = await baixarMusicaBuffer(url);
 
@@ -289,6 +449,7 @@ async function baixarEEnviarMusica(sock, from, termo, senderId, messageKey, orig
         }
 
         if (fs.existsSync(caminhoFinal)) fs.unlinkSync(caminhoFinal);
+
         console.log(`✅ Música enviada com sucesso!`);
 
     } catch (err) {

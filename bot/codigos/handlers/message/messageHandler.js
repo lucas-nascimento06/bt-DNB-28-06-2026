@@ -68,12 +68,6 @@ import {
 import {
     enviarMayaSticker
 } from '../../utils/mayaStickerSender.js';
-import {
-    handleTraduzMusica
-} from '../musica/traduzMusicaHandler.js';
-import {
-    handleLetra
-} from '../musica/extrairLetraHandler.js';
 import confissoesHandler from './confissoesHandler.js';
 import {
     perfilHandler,
@@ -129,7 +123,7 @@ const MODELO_POSTER =
 
 💬 *ESCREVA SUA MENSAGEM AQUI:* 
 
-Você...
+....
 
 📲 *WHATSAPP DA PESSOA:* 
 
@@ -140,10 +134,8 @@ Você...
 
 ℹ️ *COMO FUNCIONA:* 
 
-✅ Preencha este poster com sua mensagem e o número da pessoa. 
-✅ Depois de preencher copie e cole este poster no privado do bot. 
+✅ Após preencher o pôster, copie e cole-o no PV do bot.
 
-🔐 Sua confissão é postada de forma *100% anônima* no grupo. Depois de enviar, *apague você mesmo(a)* a mensagem no pv do bot para garantir seu anonimato total. 🔐
 #damasdanight #confissao #amizade #paquera #romancenoar`;
 // ============================================
 // 🏠 IDs DOS GRUPOS
@@ -426,25 +418,6 @@ export async function handleMessages(sock, message) {
             const chamarHandled = await handleChamarCommand(sock, message, content, from);
             if (chamarHandled) return;
         }
-
-        // ============================================
-        // 🌍 TRADUÇÃO DE MÚSICA — #traduz
-        // ============================================
-        if (lowerContent === '#traduz') {
-            if (DEBUG_MODE) console.log('🌍 Comando #traduz detectado!');
-            const traduzHandled = await handleTraduzMusica(sock, message, content, from);
-            if (traduzHandled) return;
-        }
-
-        // ============================================
-        // 🎵 LETRA DA MÚSICA — #letra
-        // ============================================
-        if (lowerContent === '#letra') {
-            if (DEBUG_MODE) console.log('🎵 Comando #letra detectado!');
-            const letraHandled = await handleLetra(sock, message, content, from);
-            if (letraHandled) return;
-        }
-
 
         // ============================================
         // 🐄 MEDIDOR DE GADO — #gado / !gado

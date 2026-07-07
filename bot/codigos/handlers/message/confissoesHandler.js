@@ -34,7 +34,7 @@ const MODELO_POSTER =
 
 💬 *ESCREVA SUA MENSAGEM AQUI:* 
 
-Você...
+....
 
 📲 *WHATSAPP DA PESSOA:* 
 
@@ -45,10 +45,8 @@ Você...
 
 ℹ️ *COMO FUNCIONA:* 
 
-✅ Preencha este poster com sua mensagem e o número da pessoa. 
-✅ Depois de preencher copie e cole este poster no privado do bot. 
+✅ Após preencher o pôster, copie e cole-o no PV do bot.
 
-🔐 Sua confissão é postada de forma *100% anônima* no grupo. Depois de enviar, *apague você mesmo(a)* a mensagem no pv do bot para garantir seu anonimato total. 🔐
 #damasdanight #confissao #amizade #paquera #romancenoar`;
 
 // Linhas fixas do poster (usadas para filtrar o que é "instrução" do que é conteúdo do usuário)
